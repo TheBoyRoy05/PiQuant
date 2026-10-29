@@ -27,3 +27,7 @@ Evaluate Pi0.5 on one LIBERO suite (default `libero_spatial`, 10 episodes per ta
 ```bash
 scripts/eval_libero.sh libero_spatial 10
 ```
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). To run on the NRP cluster, see [docs/nrp_kub_tutorial.md](docs/nrp_kub_tutorial.md).
