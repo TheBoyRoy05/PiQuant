@@ -28,6 +28,18 @@ Evaluate Pi0.5 on one LIBERO suite (default `libero_spatial`, 10 episodes per ta
 scripts/eval_libero.sh libero_spatial 10
 ```
 
+Print the latency floor of each Pi0.5 stage on each GPU and format (runs on CPU):
+
+```bash
+uv run python -m piquant.roofline
+```
+
+## Test
+
+```bash
+uv run pytest
+```
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md). To run on the NRP cluster, see [docs/nrp_kub_tutorial.md](docs/nrp_kub_tutorial.md).
