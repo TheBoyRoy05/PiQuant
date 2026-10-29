@@ -1,0 +1,16 @@
+[project]
+name = "piquant"
+version = "0.1.0"
+description = "Profiling and quantizing pi0.5 inference on consumer GPUs"
+readme = "README.md"
+authors = [
+    { name = "Issac Roy", email = "issacroy05@gmail.com" }
+]
+requires-python = "==3.12.*"
+dependencies = [
+    "lerobot[libero,pi]>=0.6.1",
+]
+
+[build-system]
+requires = ["uv_build>=0.13.1,<0.14.0"]
+build-backend = "uv_build"
