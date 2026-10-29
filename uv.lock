@@ -1522,10 +1522,22 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "lerobot", extra = ["libero", "pi"] },
+    { name = "rich" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "lerobot", extras = ["libero", "pi"], specifier = ">=0.6.1" }]
+requires-dist = [
+    { name = "lerobot", extras = ["libero", "pi"], specifier = ">=0.6.1" },
+    { name = "rich", specifier = ">=15" },
+]
+
+[package.metadata.requires-dev]
+dev = [{ name = "pytest", specifier = ">=9.2.0" }]
 
 [[package]]
 name = "platformdirs"
@@ -1680,6 +1692,7 @@ name = "pytest"
 version = "9.2.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
+    { name = "colorama", marker = "sys_platform == 'win32'" },
     { name = "iniconfig" },
     { name = "packaging" },
     { name = "pluggy" },
