@@ -1,0 +1,11 @@
+\centering
+\begin{tabular}{lrrrr}
+\toprule
+Format & Vision encoder & LLM & Action expert (per step) & Total, 10 steps \\
+\midrule
+BF16  & 5.47 (C) & 26.76 (C) & 0.85 (M) & 40.8 \\
+W8A8  & 1.52 (C) &  7.10 (C) & 0.43 (M) & 12.9 \\
+W4A16 & 5.47 (C) & 26.76 (C) & 0.45 (C) & 36.7 \\
+W4A8  & 1.52 (C) &  7.10 (C) & 0.22 (M) & 10.8 \\
+\bottomrule
+\end{tabular}

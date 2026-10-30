@@ -6,7 +6,7 @@ These rules apply to people and to coding agents alike. If an agent does the wor
 
 - `main` is protected: no direct pushes, no force pushes, no deletion
 - Work on a branch named `<type>/<change>`, using the same type as the pull request title, e.g. `feat/roofline-model` or `fix/eval-seed`
-  - Types: `feat`, `fix`, `docs`, `test`, `chore`
+  - Types: `feat`, `fix`, `docs`, `test`, `chore`, and `report` for changes under `report/`
 - Open a pull request into `main` and get at least one approval from another teammate
   - GitHub does not let you approve your own pull request
   - A new push after approval needs a fresh approval
