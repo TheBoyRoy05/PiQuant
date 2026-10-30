@@ -1,0 +1,100 @@
+% !TEX TS-program = xelatex
+% !BIB TS-program = bibtex
+\documentclass[12pt,letterpaper]{article}
+\usepackage{style/dsc180reportstyle} % import dsc180reportstyle.sty
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%% Title and Authors
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\title{Where Does the Time Go? Profiling and Quantizing $\pi_{0.5}$ Inference on Consumer GPUs}
+
+\author{Issac Roy \\
+  {\tt iroy@ucsd.edu} \\\And
+  Yash Tandon \\
+  {\tt ytandon@ucsd.edu} \\\And
+  Anirudh Annabathula \\
+  {\tt vannabathula@ucsd.edu} \\\And
+  Zhijian Liu \\
+  {\tt zhl209@ucsd.edu} \\}
+
+\begin{document}
+\maketitle
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%% Abstract and Links
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\begin{abstract}
+Vision-language-action (VLA) models such as $\pi_{0.5}$ turn camera images and a language instruction into robot actions, but a single forward pass takes tens of milliseconds even on a high-end GPU, which limits how fast a robot can react. Quantization is the obvious way to speed it up, yet recent work finds that quantized VLAs keep their task success while running no faster, or even slower, than the BF16 baseline. We argue that this gap comes from applying language-model quantization recipes without asking which resource each stage of the model is limited by. We build a roofline model of $\pi_{0.5}$ that predicts, for each stage, GPU and number format, whether the stage is limited by compute or by memory bandwidth. It predicts that the vision encoder and language model, which make up 79\% of BF16 latency on an RTX 3090 Ti at 10 denoising steps and 95\% at 2, are compute-bound, so weight-only quantization cannot speed them up while 8-bit activations can. In this quarter we reproduce $\pi_{0.5}$ on the LIBERO benchmark, measure its per-stage latency on an RTX 3090 Ti and an RTX 4080, compare those measurements against the roofline, and test whether simulated 8-bit and 4-bit quantization keeps task success.
+\end{abstract}
+
+\begin{center}
+Code: \url{https://github.com/TheBoyRoy05/PiQuant}
+\end{center}
+
+\maketoc
+\clearpage
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%% Main Contents
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\section{Introduction}
+
+A VLA policy reads one or more camera images and a task instruction and outputs a short chunk of robot actions. $\pi_{0.5}$ \citep{intelligence2025pi05} does this in three stages. A SigLIP vision encoder turns each image into 256 tokens. A Gemma-2B language model reads the image and text tokens, the prefix, and caches its keys and values. A smaller action expert then reads that cache and produces a chunk of 50 actions by flow matching, running about 10 denoising steps. Each control step repeats the whole pass, so inference latency directly caps the control rate.
+
+Recent work speeds this pass up by fusing kernels and by cutting the number of denoising steps. We focus on the lever with the largest headroom on consumer GPUs, and the one that has not yet delivered: quantization, storing weights, activations or both in 8 or 4 bits instead of 16. Quantization has two separate effects on a GPU. Smaller weights reduce the bytes read from memory, which helps a stage that is limited by memory bandwidth. Lower-precision activations let the matrix multiplications run on INT8 tensor cores, which helps a stage that is limited by compute. On consumer GeForce cards this matters a lot, because INT8 tensor-core math runs at four times the BF16 rate. A recipe only speeds up a stage if it targets the resource that stage is limited by.
+
+The roofline model \citep{williams2009roofline} makes this concrete. A stage takes at least as long as its arithmetic divided by peak compute, and at least as long as its memory traffic divided by memory bandwidth, whichever is larger. Table~\ref{tab:roofline} applies this to $\pi_{0.5}$ on an RTX 3090 Ti using the model shapes from the openpi implementation. The vision encoder and language model are compute-bound, and they make up 79\% of the 10-step BF16 latency, or 95\% with 2 steps. Weight-only W4A16 quantization, the standard recipe for language models, leaves them unchanged. W8A8 cuts the language model from 26.8 to 7.1 ms. Only the action expert is memory-bound, so it is the one stage where smaller weights pay off.
+
+\begin{table}[htbp]
+\input{table/roofline_3090ti}
+\caption{Predicted latency floor in ms for $\pi_{0.5}$ on an RTX 3090 Ti with 2 cameras and an estimated 48 prompt tokens. C marks a compute-bound stage and M a memory-bound one. Produced by \texttt{uv run python -m piquant.roofline}.}
+\label{tab:roofline}
+\end{table}
+
+These are lower bounds. Real kernels add overhead, and an activation-quantized layer must also quantize its input on the fly. Our question for this quarter is how far measured latency sits above these floors on consumer GPUs, and whether quantizing the compute-bound stages turns into real speedup while keeping task success.
+
+\subsection{Literature Review}
+
+\paragraph{VLA models.} $\pi_0$ \citep{black2024pi0} introduced the design $\pi_{0.5}$ builds on: a PaliGemma vision-language backbone with a separate action expert trained by flow matching. $\pi_{0.5}$ \citep{intelligence2025pi05} keeps that architecture and adds co-training for open-world generalization. It also conditions the action expert's normalization layers on the flow timestep, which adds weights the expert must read on every denoising step.
+
+\paragraph{Where VLA inference time goes.} \citet{ma2025realtime} optimize $\pi_0$ on an RTX 4090 down to 27.3 ms for two camera views and derive a per-GEMM roofline whose total is 19.7 ms. Our roofline reproduces their vision, language-model and action-expert floors within 5\%, which we use as a check on our model. VLA-Perf \citep{jiang2026vlaperf} measures the arithmetic intensity of each stage and finds the vision encoder (321.4 FLOP/byte) and language model (542.8) above the RTX 4090's balance point of 163.7, so compute-bound, and the action expert (54.0) below it, so memory-bound. Our roofline agrees with that split.
+
+\paragraph{Fewer denoising steps.} SnapFlow \citep{luan2026snapflow} distills $\pi_{0.5}$ into a single denoising step. On LIBERO it reaches 98.75\% success against 97.75\% for the 10-step teacher, and cuts latency from 274 to 83 ms on their setup. Naive one-step sampling already reaches 96.75\%. Cutting steps shrinks only the action expert, so after it the vision encoder and language model, both compute-bound, dominate what remains.
+
+\paragraph{Quantization methods.} Most quantization work targets language models. LLM.int8() \citep{dettmers2022llmint8} keeps outlier features in 16 bits and the rest in INT8. SmoothQuant \citep{xiao2022smoothquant} moves activation outliers into the weights so both can be stored as INT8 (W8A8). AWQ \citep{lin2023awq} and GPTQ \citep{frantar2022gptq} quantize weights only, to 4 bits, protecting the channels that matter most or compensating rounding error with second-order information. QuaRot \citep{ashkboos2024quarot} rotates weights and activations to remove outliers and reach 4 bits for weights, activations and the KV cache. Weight-only methods speed up language-model decoding because decoding one token at a time is memory-bound. That reasoning does not carry over to a VLA prefix of several hundred tokens, which is compute-bound.
+
+\paragraph{Quantizing VLAs.} QuantVLA \citep{zhang2026quantvla} calibrates per-layer scales for post-training quantization of VLAs and reports memory savings. VLAQuantBench \citep{xu2026vlaquantbench} evaluates post-training quantization of four VLAs in closed loop on LIBERO. Its accuracy experiments use simulated quantization, and its one real-kernel study, on OpenVLA-OFT's language model on an RTX 4090, finds every quantized method slower than BF16: 18.8 ms per control call for BF16 against 23.8 ms for SmoothQuant and 24.1 ms for AWQ. The authors attribute this to the cost of quantizing activations and dequantizing weights at run time, but they do not profile the kernels. So far, no work we have found reports a measured speedup from quantizing a VLA. That gap is what this project targets.
+
+\subsection{Data Description}
+
+This project uses no training data of its own. We evaluate a pretrained policy in simulation and measure its latency.
+
+\begin{itemize}
+    \item \textbf{Model.} \texttt{lerobot/pi05\_libero\_finetuned}, $\pi_{0.5}$ fine-tuned on LIBERO and released through Hugging Face LeRobot. The checkpoint is about 14.5 GB.
+    \item \textbf{Benchmark.} LIBERO \citep{liu2023libero}, a set of simulated tabletop manipulation tasks built on MuJoCo. We use two of its 10-task suites, starting with LIBERO-Spatial. Each episode resets a scene from a fixed initial state, runs the policy in closed loop, and records success or failure, so the data we collect are per-episode success rates and per-call latencies.
+    \item \textbf{Hardware.} An RTX 3090 Ti (24 GB) and an RTX 4080 (16 GB) as consumer deployment targets, an A100 for batched accuracy runs, and the National Research Platform (NRP) cluster for jobs that need more compute.
+\end{itemize}
+
+LIBERO is suited to this question because $\pi_{0.5}$ is near its success ceiling there, so any accuracy loss from quantization shows up as a drop from a known baseline. That same ceiling can also hide small losses, which we keep in mind when reading results.
+
+\section{Methods}
+
+\section{Results}
+
+\section{Discussion}
+
+\section{Conclusion}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%% Reference / Bibliography
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\makereference
+
+\bibliography{reference}
+\bibliographystyle{style/dsc180bibstyle}
+
+\end{document}
