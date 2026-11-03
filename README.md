@@ -24,7 +24,7 @@ uv sync
 
 ## Run
 
-Evaluate Pi0.5 on one LIBERO suite (default `libero_spatial`, 10 episodes per task):
+Evaluate Pi0.5 on one LIBERO suite (default `libero_spatial`, 10 episodes per task). The run also writes the token counts the model sees to `outputs/token_counts.json`:
 
 ```bash
 scripts/eval_libero.sh libero_spatial 10

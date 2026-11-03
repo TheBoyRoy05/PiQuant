@@ -9,9 +9,10 @@ episodes="${2:-10}"
 # Headless rendering for clusters (DSMLP, NRP) with no display.
 export MUJOCO_GL="${MUJOCO_GL:-egl}"
 
-uv run lerobot-eval \
+# `<<< n` answers LIBERO's first-import prompt for a custom dataset path.
+uv run python scripts/record_token_counts.py \
   --policy.path="${POLICY:-lerobot/pi05_libero_finetuned}" \
   --env.type=libero \
   --env.task="$suite" \
   --eval.batch_size=1 \
-  --eval.n_episodes="$episodes"
+  --eval.n_episodes="$episodes" <<< n

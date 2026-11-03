@@ -1,0 +1,81 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: eval-libero
+  namespace: ucsd-ubellur-ugcapstone-d38
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: nvidia.com/gpu.product
+                    operator: In
+                    # Any 24 GB+ card. Success rate does not depend on the card; latency runs pin one.
+                    values:
+                      - NVIDIA-GeForce-RTX-3090
+                      - NVIDIA-GeForce-RTX-4090
+                      - NVIDIA-A10
+                      - NVIDIA-RTX-A6000
+                      - NVIDIA-L40
+                      - NVIDIA-L40S
+                      - Tesla-V100-SXM2-32GB
+      containers:
+        - name: eval
+          image: ghcr.io/astral-sh/uv:python3.12-bookworm
+          command: ["bash", "-euo", "pipefail", "-c"]
+          args:
+            # The run script lives in the repo, so only the clone stays inline.
+            - |
+              git clone -q --depth 1 --branch "$GIT_REF" https://github.com/TheBoyRoy05/PiQuant /work/PiQuant
+              cd /work/PiQuant
+              scripts/nrp_eval.sh "$SUITE" "$EPISODES"
+          env:
+            - name: GIT_REF
+              value: main
+            - name: SUITE
+              value: libero_spatial
+            - name: EPISODES
+              value: "10"
+            - name: HF_HOME
+              value: /data/hf
+            # The pi0.5 tokenizer comes from google/paligemma-3b-pt-224, a gated repo.
+            - name: HF_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: hf-token
+                  key: token
+            - name: UV_CACHE_DIR
+              value: /data/uv-cache
+            # The venv lives on the volume, so only the first run installs packages; later runs sync in seconds.
+            - name: UV_PROJECT_ENVIRONMENT
+              value: /data/venv
+            # The NVIDIA runtime mounts the driver's EGL library only when graphics is listed.
+            - name: NVIDIA_DRIVER_CAPABILITIES
+              value: all
+          resources:
+            requests:
+              cpu: "2"
+              memory: 24Gi
+              nvidia.com/gpu: "1"
+            limits:
+              cpu: "2"
+              memory: 24Gi
+              nvidia.com/gpu: "1"
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: shm
+              mountPath: /dev/shm
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: piquant-data
+        - name: shm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 8Gi
