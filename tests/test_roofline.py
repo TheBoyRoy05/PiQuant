@@ -2,7 +2,16 @@ from dataclasses import replace
 
 import pytest
 
-from piquant.roofline import FORMATS, PI05_ACTION_EXPERT, Gpu, Workload, latency_floor, stage_costs
+from piquant.roofline import (
+    FORMATS,
+    GPUS,
+    PI05_ACTION_EXPERT,
+    PI05_LIBERO,
+    Gpu,
+    Workload,
+    latency_floor,
+    stage_costs,
+)
 
 # Ma et al., "Running VLAs at Real-time Speed", Table 2, Roofline column: https://arxiv.org/html/2510.26742v1#S4.T2
 # Expected values are its Vision Encoder, LLM and Action Expert subtotals. The paper never states its peak FLOP/s;
@@ -24,3 +33,18 @@ def test_reproduces_published_pi0_roofline_on_4090_within_5_percent():
     assert vision_encoder_ms == pytest.approx(2.485, rel=0.05)
     assert llm_ms == pytest.approx(10.727, rel=0.05)
     assert action_expert_ms == pytest.approx(6.486, rel=0.05)
+
+
+def test_pi05_libero_on_3090_ti_bf16_matches_lerobot_as_run():
+    stages = stage_costs(PI05_LIBERO, PI05_ACTION_EXPERT)
+    gpu = GPUS["RTX 3090 Ti"]
+    vision_encoder = latency_floor(stages.vision_encoder, gpu, BF16)
+    llm = latency_floor(stages.llm, gpu, BF16)
+    action_expert = latency_floor(stages.action_expert, gpu, BF16)
+
+    assert vision_encoder.ms == pytest.approx(8.20, abs=0.01)
+    assert llm.ms == pytest.approx(46.95, abs=0.01)
+    assert action_expert.ms == pytest.approx(0.86, abs=0.01)
+    assert vision_encoder.compute_bound
+    assert llm.compute_bound
+    assert not action_expert.compute_bound

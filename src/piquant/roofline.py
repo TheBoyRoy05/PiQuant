@@ -99,8 +99,8 @@ DENOISING_STEPS = (10, 2)  # pi0.5 default flow steps, and a few-step target
 GPUS = {
     # RTX 3090 figures x 84/82 SMs x 1860/1695 MHz: https://images.nvidia.com/aem-dam/en-zz/Solutions/geforce/ampere/pdf/NVIDIA-ampere-GA102-GPU-Architecture-Whitepaper-V1.pdf
     "RTX 3090 Ti": Gpu(bf16_flops_per_s=80e12, int8_ops_per_s=320e12, bandwidth_bytes_per_s=1008e9),
-    # https://images.nvidia.com/aem-dam/Solutions/geforce/ada/nvidia-ada-gpu-architecture.pdf
-    "RTX 4080": Gpu(bf16_flops_per_s=97.5e12, int8_ops_per_s=389.9e12, bandwidth_bytes_per_s=716.8e9),
+    # Table 4: https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf
+    "RTX 5080": Gpu(bf16_flops_per_s=112.6e12, int8_ops_per_s=450.2e12, bandwidth_bytes_per_s=960e9),
     # https://www.nvidia.com/content/dam/en-zz/Solutions/Data-Center/a100/pdf/nvidia-a100-datasheet-us-nvidia-1758950-r4-web.pdf
     "A100 80GB SXM": Gpu(bf16_flops_per_s=312e12, int8_ops_per_s=624e12, bandwidth_bytes_per_s=2039e9),
 }
@@ -124,8 +124,9 @@ PI05_ACTION_EXPERT = Transformer(
     layers=18, width=1024, mlp_width=4096, heads=8, kv_heads=1, head_dim=256, gated_mlp=True, adaptive_norm=True
 )
 
-# LeRobot pads the prompt (task text plus state) to tokenizer_max_length=200.
-PI05_LIBERO = Workload(cameras=2, text_tokens=200, action_tokens=50)
+# LeRobot pads the prompt (task text plus state) to tokenizer_max_length=200, and still encodes the config's one
+# empty camera through SigLIP and the prefix, masking it only in attention.
+PI05_LIBERO = Workload(cameras=3, text_tokens=200, action_tokens=50)
 
 
 def stage_costs(workload: Workload, action_expert_model: Transformer) -> Stages:
