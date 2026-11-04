@@ -17,14 +17,15 @@ These rules apply to people and to coding agents alike. If an agent does the wor
 
 ## Before asking for review
 
+- `uv run pytest` passes
 - The README still matches how to set up and run the code
 - No checkpoints, datasets, rollout videos or other large outputs are committed
 
 ## Override
 
-Repository admins can bypass the rule for an emergency, such as a broken `main` blocking everyone before a deadline.
+Repository admins can merge a pull request without an approval for an emergency, such as a broken `main` blocking everyone before a deadline. Direct pushes to `main` stay blocked even for admins.
 
-- Say why in the commit message and tell the team
+- Say why in the pull request description and tell the team
 - Agents never use the override
 
 ## For coding agents

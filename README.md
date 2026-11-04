@@ -28,6 +28,18 @@ Evaluate Pi0.5 on one LIBERO suite (default `libero_spatial`, 10 episodes per ta
 scripts/eval_libero.sh libero_spatial 10
 ```
 
+Print the latency floor of each Pi0.5 stage on each GPU and format (runs on CPU):
+
+```bash
+uv run python -m piquant.roofline
+```
+
+## Test
+
+```bash
+uv run pytest
+```
+
 ## Report
 
 The LaTeX report lives in `report/` and builds on Overleaf as is (upload the folder as a zip). To build it locally you need:
