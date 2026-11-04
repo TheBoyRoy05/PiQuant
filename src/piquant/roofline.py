@@ -101,6 +101,8 @@ GPUS = {
     "RTX 3090 Ti": Gpu(bf16_flops_per_s=80e12, int8_ops_per_s=320e12, bandwidth_bytes_per_s=1008e9),
     # https://images.nvidia.com/aem-dam/Solutions/geforce/ada/nvidia-ada-gpu-architecture.pdf
     "RTX 4080": Gpu(bf16_flops_per_s=97.5e12, int8_ops_per_s=389.9e12, bandwidth_bytes_per_s=716.8e9),
+    # Table 4: https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf
+    "RTX 5080": Gpu(bf16_flops_per_s=112.6e12, int8_ops_per_s=450.2e12, bandwidth_bytes_per_s=960e9),
     # https://www.nvidia.com/content/dam/en-zz/Solutions/Data-Center/a100/pdf/nvidia-a100-datasheet-us-nvidia-1758950-r4-web.pdf
     "A100 80GB SXM": Gpu(bf16_flops_per_s=312e12, int8_ops_per_s=624e12, bandwidth_bytes_per_s=2039e9),
 }

@@ -11,6 +11,8 @@ Where does Pi0.5 spend its inference time on consumer GPUs, and does quantizing 
 
 - Linux with an NVIDIA GPU, since LIBERO requires Linux
 - [uv](https://docs.astral.sh/uv/)
+- CMake 3.x, to build LIBERO's `egl-probe` dependency, which fails to build under CMake 4. Without root: `uv tool install "cmake<4"`
+- Python headers, because the checkpoint turns on `torch.compile` and its Triton backend compiles C against `Python.h`. A system Python often lacks them (`python3.12-dev` on Ubuntu). Without root, let uv use its own Python, which ships them: `uv sync --managed-python`
 
 ## Setup
 
@@ -32,6 +34,15 @@ Print the latency floor of each Pi0.5 stage on each GPU and format (runs on CPU)
 
 ```bash
 uv run python -m piquant.roofline
+```
+
+Measure the latency of each Pi0.5 stage on this GPU, next to its roofline floor (needs a GPU and the checkpoint):
+
+```bash
+uv run python -m piquant.profile                                # eager, per-stage breakdown
+uv run python -m piquant.profile --steps 2                      # fewer denoising steps
+uv run python -m piquant.profile --compile                      # the checkpoint's torch.compile, total only
+uv run python -m piquant.profile --output outputs/profile.json  # keep every call's timings
 ```
 
 ## Test
