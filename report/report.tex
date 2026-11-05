@@ -54,7 +54,7 @@ The roofline model \citep{williams2009roofline} makes this concrete. A stage tak
 \label{tab:roofline}
 \end{table}
 
-These are lower bounds. Real kernels add overhead, and an activation-quantized layer must also quantize its input on the fly. Our question for this quarter is how far measured latency sits above these floors on consumer GPUs, and whether quantizing the compute-bound stages turns into real speedup while keeping task success.
+These are lower bounds. Real kernels add overhead, and an activation-quantized layer must also quantize its input on the fly. LeRobot also keeps the SigLIP vision encoder in FP32, which runs as TF32 at half the BF16 rate, so its as-run floor on the 3090 Ti is 16.40 ms rather than 8.20 ms. Our question for this quarter is how far measured latency sits above these floors on consumer GPUs, and whether quantizing the compute-bound stages turns into real speedup while keeping task success.
 
 \subsection{Literature Review}
 
