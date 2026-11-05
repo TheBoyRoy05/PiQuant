@@ -1,8 +1,19 @@
+import argparse
+
 import pytest
 import torch
 from torch import nn
 
-from piquant.profile import Prefix, StageTimer, prefix_composition, roofline_gpu, summarize, weight_bytes
+from piquant.profile import (
+    Prefix,
+    StageTimer,
+    describe,
+    positive_int,
+    prefix_composition,
+    roofline_gpu,
+    summarize,
+    weight_bytes,
+)
 
 
 def test_prefix_counts_blank_cameras_and_padded_text():
@@ -38,6 +49,19 @@ def test_summarize_total_only():
     assert summary["total"].median_ms == pytest.approx(41.0)
 
 
+def test_p90_stays_within_the_samples():
+    summary = describe([float(ms) for ms in range(1, 11)])
+
+    assert summary.p90_ms == pytest.approx(9.1)
+    assert describe([4.0]).p90_ms == 4.0
+
+
+def test_positive_int_rejects_zero():
+    assert positive_int("1") == 1
+    with pytest.raises(argparse.ArgumentTypeError):
+        positive_int("0")
+
+
 def test_weight_bytes_groups_by_dtype_and_filters_by_name():
     model = nn.ModuleDict({"proj": nn.Linear(4, 4, bias=False), "norm": nn.ModuleDict({"dense": nn.Linear(4, 12)})})
     model["proj"].to(torch.bfloat16)
@@ -46,9 +70,11 @@ def test_weight_bytes_groups_by_dtype_and_filters_by_name():
     assert weight_bytes(model, select=lambda name: "norm.dense" in name) == {torch.float32: (48 + 12) * 4}
 
 
-def test_roofline_gpu_matches_device_names():
+def test_roofline_gpu_matches_device_names_exactly():
     assert roofline_gpu("NVIDIA GeForce RTX 5080") == "RTX 5080"
     assert roofline_gpu("NVIDIA GeForce RTX 3090 Ti") == "RTX 3090 Ti"
+    assert roofline_gpu("NVIDIA GeForce RTX 5080 Laptop GPU") is None
+    assert roofline_gpu("NVIDIA GeForce RTX 3090") is None
     assert roofline_gpu("NVIDIA H100 80GB HBM3") is None
 
 

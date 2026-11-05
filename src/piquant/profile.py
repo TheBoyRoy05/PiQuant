@@ -15,6 +15,8 @@ from piquant.roofline import FORMATS, GPUS, PI05_ACTION_EXPERT, TOKENS_PER_IMAGE
 
 POLICY = "lerobot/pi05_libero_finetuned"
 TIMED_STAGES = ("vision encoder", "llm prefix", "denoising", "action expert")
+# LeRobot's pi0.5 sets "high" (TF32) when it compiles, so eager uses it too to time the same math as lerobot-eval.
+MATMUL_PRECISION = "high"
 
 
 @dataclass(frozen=True)
@@ -85,7 +87,8 @@ def summarize(calls: list[dict[str, list[float]]]) -> dict[str, Summary]:
 
 
 def describe(values: list[float]) -> Summary:
-    p90 = statistics.quantiles(values, n=10)[-1] if len(values) > 1 else values[0]
+    # inclusive keeps p90 within the samples; the default exclusive method extrapolates past the max on few calls.
+    p90 = statistics.quantiles(values, n=10, method="inclusive")[-1] if len(values) > 1 else values[0]
     return Summary(statistics.median(values), p90)
 
 
@@ -99,7 +102,8 @@ def weight_bytes(module: torch.nn.Module, select=lambda name: True) -> dict[torc
 
 
 def roofline_gpu(device_name: str) -> str | None:
-    return next((name for name in GPUS if name in device_name), None)
+    name = device_name.removeprefix("NVIDIA ").removeprefix("GeForce ")
+    return name if name in GPUS else None
 
 
 def load_policy(path: str, steps: int | None, compile_model: bool):
@@ -111,7 +115,7 @@ def load_policy(path: str, steps: int | None, compile_model: bool):
     config.device = "cuda"
     if steps is not None:
         config.num_inference_steps = steps
-    return PI05Policy.from_pretrained(path, config=config).to("cuda").eval()
+    return PI05Policy.from_pretrained(path, config=config).eval()
 
 
 def synthetic_batch(config) -> dict[str, torch.Tensor]:
@@ -134,14 +138,16 @@ def measure(
 ) -> tuple[list[dict[str, list[float]]], Prefix | None]:
     model = policy.model
     timer = StageTimer()
-    captured = {}
+    prefix_inputs = None
 
     if breakdown:
         embed_prefix = model.embed_prefix
 
         def capture(images, img_masks, tokens, masks):
+            nonlocal prefix_inputs
             out = embed_prefix(images, img_masks, tokens, masks)
-            captured["prefix"] = prefix_composition(images, img_masks, tokens, out[0])
+            # Keep the tensors, not their values: reading a mask here would sync inside the timed vision encoder.
+            prefix_inputs = (images, img_masks, tokens, out[0])
             return out
 
         model.embed_prefix = capture
@@ -162,7 +168,7 @@ def measure(
         ms = timer.read()
         if i >= warmup:
             calls.append(ms)
-    return calls, captured.get("prefix")
+    return calls, prefix_composition(*prefix_inputs) if prefix_inputs else None
 
 
 def stage_weights(model) -> dict[str, dict[torch.dtype, int]]:
@@ -204,17 +210,25 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--policy", default=POLICY)
     parser.add_argument("--steps", type=int, help="denoising steps (default: the checkpoint's)")
-    parser.add_argument("--warmup", type=int, default=3)
-    parser.add_argument("--iters", type=int, default=20)
+    parser.add_argument("--warmup", type=positive_int, default=3)
+    parser.add_argument("--iters", type=positive_int, default=20)
     parser.add_argument("--compile", action="store_true", help="keep the checkpoint's torch.compile; total only")
     parser.add_argument("--gpu", choices=sorted(GPUS), help="roofline GPU to compare against (default: detected)")
     parser.add_argument("--output", type=Path, help="write every call's stage timings as JSON")
     args = parser.parse_args()
+    if not torch.cuda.is_available():
+        parser.exit(1, "piquant.profile needs a CUDA GPU, and none is available.\n")
 
+    torch.set_float32_matmul_precision(MATMUL_PRECISION)
     policy = load_policy(args.policy, args.steps, args.compile)
     config = policy.config
     steps = config.num_inference_steps
     device = torch.cuda.get_device_name()
+    console = Console()
+    warmup = f"Warming up for {args.warmup} calls"
+    if args.compile:
+        warmup += f"; torch.compile in {config.compile_mode} mode can take minutes"
+    console.print(f"{warmup}.")
     torch.cuda.reset_peak_memory_stats()
     calls, prefix = measure(policy, synthetic_batch(config), args.warmup, args.iters, breakdown=not args.compile)
     if prefix is None:
@@ -226,7 +240,7 @@ def main() -> None:
     floor = floors(prefix, config.chunk_size, gpu_name) if gpu_name else {}
 
     mode = "torch.compile" if args.compile else "eager"
-    title = f"{device}, {steps} denoising steps, {mode}, per call over {args.iters} calls (ms)"
+    title = f"{device}, {steps} denoising steps, {mode}, {MATMUL_PRECISION} matmul, per call over {args.iters} calls (ms)"
     if floor:
         title += f". Floor = BF16 roofline on {gpu_name}"
     table = Table(title=title)
@@ -272,7 +286,6 @@ def main() -> None:
             row += [f"{f:.2f}", f"{s.median_ms / f:.1f}x"] if f else ["", ""]
         table.add_row(*row)
 
-    console = Console()
     console.print(
         f"Prefix: {prefix.tokens} tokens = {prefix.image_slots} images x {prefix.tokens_per_image} "
         f"({prefix.blank_image_slots} blank) + {prefix.text_tokens} text slots."
@@ -282,7 +295,7 @@ def main() -> None:
     console.print(table)
     console.print(f"Peak GPU memory allocated: {torch.cuda.max_memory_allocated() / 2**30:.2f} GiB")
 
-    weights = Table(title="Weights each stage reads per call, by dtype (MB)")
+    weights = Table(title="Weights each stage reads by dtype (MB), the action expert's once per denoising step")
     weights.add_column("Stage")
     weights.add_column("Weights by dtype", justify="right")
     for stage, by_dtype in stage_weights(policy.model).items():
@@ -304,6 +317,13 @@ def main() -> None:
         }
         args.output.write_text(json.dumps(record, indent=2))
         console.print(f"Wrote {args.output}")
+
+
+def positive_int(text: str) -> int:
+    value = int(text)
+    if value < 1:
+        raise argparse.ArgumentTypeError(f"must be at least 1, got {value}")
+    return value
 
 
 if __name__ == "__main__":
