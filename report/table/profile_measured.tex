@@ -1,0 +1,22 @@
+% Measured median ms from `uv run python -m piquant.profile` (eager rows) and `... --compile` (compiled row),
+% and `--steps 2` for the 2-step row. Floors come from the same run: BF16, except the vision encoder's TF32 floor.
+% RTX 3090 Ti: replace each "--" with the run's median and its measured / floor ratio.
+\centering
+\small
+\begin{tabular}{lrrrrrr}
+\toprule
+ & \multicolumn{3}{c}{RTX 5080} & \multicolumn{3}{c}{RTX 3090 Ti} \\
+\cmidrule(lr){2-4} \cmidrule(lr){5-7}
+Stage & Measured & Floor & Ratio & Measured & Floor & Ratio \\
+\midrule
+Vision encoder          & 25.3  & 11.65 & 2.2$\times$  & -- & 16.40 & -- \\
+LLM prefix              & 50.9  & 33.36 & 1.5$\times$  & -- & 46.95 & -- \\
+Denoising, 10 steps     & 173.2 & 9.03  & 19.2$\times$ & -- & 8.60  & -- \\
+\quad one step          & 14.6  & 0.90  & 16.1$\times$ & -- & 0.86  & -- \\
+Other                   & 3.0   &       &              & -- &       &    \\
+\midrule
+Total, eager            & 253.1 & 54.04 & 4.7$\times$  & -- & 71.95 & -- \\
+Total, eager, 2 steps   & 121.2 & 46.81 & 2.6$\times$  & -- & 65.07 & -- \\
+Total, compiled         & 80.8  & 54.04 & 1.5$\times$  & -- & 71.95 & -- \\
+\bottomrule
+\end{tabular}
