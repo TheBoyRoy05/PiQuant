@@ -48,7 +48,7 @@ def test_weight_bytes_groups_by_dtype_and_filters_by_name():
 
 def test_roofline_gpu_matches_device_names():
     assert roofline_gpu("NVIDIA GeForce RTX 5080") == "RTX 5080"
-    assert roofline_gpu("NVIDIA GeForce RTX 4080") == "RTX 4080"
+    assert roofline_gpu("NVIDIA GeForce RTX 3090 Ti") == "RTX 3090 Ti"
     assert roofline_gpu("NVIDIA H100 80GB HBM3") is None
 
 
