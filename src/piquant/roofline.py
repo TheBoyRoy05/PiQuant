@@ -9,6 +9,7 @@ from rich.table import Table
 @dataclass(frozen=True)
 class Gpu:
     bf16_flops_per_s: float  # dense tensor-core FLOP/s with FP32 accumulate
+    tf32_flops_per_s: float
     int8_ops_per_s: float
     bandwidth_bytes_per_s: float
 
@@ -95,14 +96,20 @@ KV_CACHE_BYTES_PER_VALUE = 2  # the prefix KV cache stays BF16 in every format
 DENOISING_STEPS = (10, 2)  # pi0.5 default flow steps, and a few-step target
 
 # Peaks from vendor whitepapers and datasheets.
-# GeForce cards run BF16 with FP32 accumulate at half rate, INT8 at full rate.
+# GeForce cards run BF16 with FP32 accumulate at half rate, INT8 at full rate. TF32 runs at half the BF16 rate.
 GPUS = {
-    # RTX 3090 figures x 84/82 SMs x 1860/1695 MHz: https://images.nvidia.com/aem-dam/en-zz/Solutions/geforce/ampere/pdf/NVIDIA-ampere-GA102-GPU-Architecture-Whitepaper-V1.pdf
-    "RTX 3090 Ti": Gpu(bf16_flops_per_s=80e12, int8_ops_per_s=320e12, bandwidth_bytes_per_s=1008e9),
+    # Table 9 RTX 3090 figures x 84/82 SMs x 1860/1695 MHz: https://images.nvidia.com/aem-dam/en-zz/Solutions/geforce/ampere/pdf/NVIDIA-ampere-GA102-GPU-Architecture-Whitepaper-V1.pdf
+    "RTX 3090 Ti": Gpu(
+        bf16_flops_per_s=80e12, tf32_flops_per_s=40e12, int8_ops_per_s=320e12, bandwidth_bytes_per_s=1008e9
+    ),
     # Table 4: https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf
-    "RTX 5080": Gpu(bf16_flops_per_s=112.6e12, int8_ops_per_s=450.2e12, bandwidth_bytes_per_s=960e9),
+    "RTX 5080": Gpu(
+        bf16_flops_per_s=112.6e12, tf32_flops_per_s=56.3e12, int8_ops_per_s=450.2e12, bandwidth_bytes_per_s=960e9
+    ),
     # https://www.nvidia.com/content/dam/en-zz/Solutions/Data-Center/a100/pdf/nvidia-a100-datasheet-us-nvidia-1758950-r4-web.pdf
-    "A100 80GB SXM": Gpu(bf16_flops_per_s=312e12, int8_ops_per_s=624e12, bandwidth_bytes_per_s=2039e9),
+    "A100 80GB SXM": Gpu(
+        bf16_flops_per_s=312e12, tf32_flops_per_s=156e12, int8_ops_per_s=624e12, bandwidth_bytes_per_s=2039e9
+    ),
 }
 
 FORMATS = {
@@ -111,6 +118,8 @@ FORMATS = {
     "W4A16": Format(weight_bits=4, activation_bits=16),
     "W4A8": Format(weight_bits=4, activation_bits=8),
 }
+# Only LeRobot's FP32 vision tower runs this way (under torch's "high" matmul precision), so it stays out of FORMATS.
+TF32 = Format(weight_bits=32, activation_bits=32)
 
 # Shapes from openpi: SigLIP So400m/14, gemma_2b, gemma_300m.
 # https://github.com/Physical-Intelligence/openpi/blob/main/src/openpi/models/siglip.py
@@ -164,8 +173,9 @@ def stage_costs(workload: Workload, action_expert_model: Transformer) -> Stages:
 
 
 def latency_floor(cost: StageCost, gpu: Gpu, fmt: Format) -> LatencyFloor:
-    linear_peak = gpu.int8_ops_per_s if fmt.activation_bits == 8 else gpu.bf16_flops_per_s
-    compute = cost.linear_flops / linear_peak + cost.attention_flops / gpu.bf16_flops_per_s
+    float_peak = gpu.tf32_flops_per_s if fmt.activation_bits == 32 else gpu.bf16_flops_per_s
+    linear_peak = gpu.int8_ops_per_s if fmt.activation_bits == 8 else float_peak
+    compute = cost.linear_flops / linear_peak + cost.attention_flops / float_peak
 
     # Activations are too small at batch 1 to move the memory floor, so only weights and the KV cache count.
     memory = (cost.weight_params * fmt.weight_bits / 8 + cost.kv_cache_bytes) / gpu.bandwidth_bytes_per_s

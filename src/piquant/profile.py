@@ -11,7 +11,7 @@ import torch
 from rich.console import Console
 from rich.table import Table
 
-from piquant.roofline import FORMATS, GPUS, PI05_ACTION_EXPERT, TOKENS_PER_IMAGE, Workload, latency_floor, stage_costs
+from piquant.roofline import FORMATS, GPUS, PI05_ACTION_EXPERT, TF32, TOKENS_PER_IMAGE, Workload, latency_floor, stage_costs
 
 POLICY = "lerobot/pi05_libero_finetuned"
 TIMED_STAGES = ("vision encoder", "llm prefix", "denoising", "action expert")
@@ -196,7 +196,8 @@ def floors(prefix: Prefix, action_tokens: int, gpu_name: str) -> dict[str, float
     stages = stage_costs(Workload(prefix.image_slots, prefix.text_tokens, action_tokens), PI05_ACTION_EXPERT)
     gpu, bf16 = GPUS[gpu_name], FORMATS["BF16"]
     return {
-        "vision encoder": latency_floor(stages.vision_encoder, gpu, bf16).ms,
+        # LeRobot keeps SigLIP and the projector in FP32, which MATMUL_PRECISION runs as TF32.
+        "vision encoder": latency_floor(stages.vision_encoder, gpu, TF32).ms,
         "llm prefix": latency_floor(stages.llm, gpu, bf16).ms,
         "action expert": latency_floor(stages.action_expert, gpu, bf16).ms,
     }
@@ -242,7 +243,7 @@ def main() -> None:
     mode = "torch.compile" if args.compile else "eager"
     title = f"{device}, {steps} denoising steps, {mode}, {MATMUL_PRECISION} matmul, per call over {args.iters} calls (ms)"
     if floor:
-        title += f". Floor = BF16 roofline on {gpu_name}"
+        title += f". Floor = BF16 roofline on {gpu_name}, TF32 for the vision encoder"
     table = Table(title=title)
     for column in ["Stage", "Median", "p90", "Share"]:
         table.add_column(column, justify="left" if column == "Stage" else "right")

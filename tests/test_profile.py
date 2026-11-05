@@ -8,6 +8,7 @@ from piquant.profile import (
     Prefix,
     StageTimer,
     describe,
+    floors,
     positive_int,
     prefix_composition,
     roofline_gpu,
@@ -26,6 +27,14 @@ def test_prefix_counts_blank_cameras_and_padded_text():
 
     assert prefix == Prefix(image_slots=3, blank_image_slots=1, tokens_per_image=256, text_tokens=200)
     assert prefix.tokens == 968
+
+
+def test_floors_use_tf32_for_vision_and_bf16_elsewhere():
+    floor = floors(Prefix(image_slots=3, blank_image_slots=1, tokens_per_image=256, text_tokens=200), 50, "RTX 3090 Ti")
+
+    assert floor["vision encoder"] == pytest.approx(16.40, abs=0.01)
+    assert floor["llm prefix"] == pytest.approx(46.95, abs=0.01)
+    assert floor["action expert"] == pytest.approx(0.86, abs=0.01)
 
 
 def test_summarize_sums_steps_and_puts_untimed_time_in_other():
