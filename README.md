@@ -40,6 +40,19 @@ uv run python -m piquant.roofline
 uv run pytest
 ```
 
+## Report
+
+The LaTeX report lives in `report/` and builds on Overleaf as is (upload the folder as a zip). To build it locally you need:
+
+- A TeX distribution with XeLaTeX and latexmk: [MacTeX](https://www.tug.org/mactex/), [TeX Live](https://www.tug.org/texlive/) or [MiKTeX](https://miktex.org/) (MiKTeX also needs [Perl](https://strawberryperl.com/) for latexmk)
+- The fonts the course style file loads: XCharter (ships with TeX Live and MacTeX), Arial and [Fira Code](https://github.com/tonsky/FiraCode)
+
+```bash
+cd report && latexmk report.tex
+```
+
+`report/.latexmkrc` selects XeLaTeX, so the VS Code LaTeX Workshop extension builds it on save.
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md). To run on the NRP cluster, see [docs/nrp_kub_tutorial.md](docs/nrp_kub_tutorial.md).
