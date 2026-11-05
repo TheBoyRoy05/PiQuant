@@ -90,11 +90,11 @@ We measure two modes. Eager mode runs the model as written and gives the per-sta
 
 \section{Results}
 
-Table~\ref{tab:profile} shows the measured latency of each stage. On the RTX 5080 the compiled model takes 80.8 ms per call, 1.5$\times$ its 54.04 ms floor, or about 12 calls per second. The language-model prefix runs at 1.5$\times$ its floor even in eager mode, which supports the roofline's prediction that it is compute-bound, and the vision encoder runs at 2.2$\times$ its TF32 floor.
+Table~\ref{tab:profile} shows the measured latency of each stage. On the RTX 5080 the compiled model runs within a factor of two of its roofline floor, about 12 calls per second. The language-model prefix stays close to its floor even in eager mode, which supports the roofline's prediction that it is compute-bound. The vision encoder is also within a small factor of its TF32 floor.
 
-Eager denoising is far from its floor. Each step takes 14.6 ms against a 0.90 ms floor, and individual steps occasionally stall for several times the median, so the eager total varies by tens of milliseconds between runs. This points to kernel-launch overhead in the action expert's many small operations rather than to compute or memory. Compiling the model removes most of it: with the same TF32 math, the total falls from 253.1 ms in eager mode to 80.8 ms.
+Eager denoising is far from its floor. Individual steps occasionally stall for several times the median, so the eager total varies by tens of milliseconds between runs. This points to kernel-launch overhead in the action expert's many small operations rather than to compute or memory. Compiling the model removes most of this overhead while keeping the same TF32 math.
 
-The action expert reads 623 MB of BF16 weights and another 466 MB of FP32 weights on every denoising step. The FP32 weights belong to the adaptive normalization layers, which depend only on the flow timestep, so they make up 43\% of the weight bytes the memory-bound expert reads per step.
+The action expert reads 623 MB of BF16 weights and another 466 MB of FP32 weights on every denoising step. The FP32 weights belong to the adaptive normalization layers and make up 43\% of the weight bytes the memory-bound expert reads per step. These layers take only the flow timestep as input, and the timestep schedule is fixed, so their outputs could be computed once ahead of time and those reads avoided.
 
 % RTX 3090 Ti: add a sentence comparing it with the 5080 once its numbers are in the profiling table (tab:profile).
 
