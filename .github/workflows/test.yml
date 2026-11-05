@@ -1,0 +1,36 @@
+name: Test
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # A new push to a PR cancels its older run; each push to main gets its own group, so every merge keeps a result.
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # egl-probe (via robomimic) declares cmake_minimum_required 2.8.12; this keeps it building once runner cmake is 4.
+      CMAKE_POLICY_VERSION_MINIMUM: "3.5"
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - name: Set up uv and Python 3.12
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+        with:
+          python-version: "3.12"
+          enable-cache: true
+          # Keeps only wheels built from sdists (egl-probe, robomimic, bddl...); caching torch/CUDA would fill the 10 GB cache.
+          prune-cache: true
+      - name: Install locked dependencies
+        run: uv sync --frozen
+      - name: Run tests
+        run: uv run pytest -q
