@@ -45,6 +45,15 @@ uv run python -m piquant.profile --compile                      # the checkpoint
 uv run python -m piquant.profile --output outputs/profile.json  # keep every call's timings
 ```
 
+## Demo
+
+Two Pi0.5 rollouts on LIBERO-Spatial from our first baseline evaluation, played back in real time. On the left, the policy places the bowl on the plate in 3.9 s. On the right, it runs out the 280-step limit without completing the task.
+
+<p align="center">
+  <img src="docs/demo/success.gif" width="256" alt="Pi0.5 places the black bowl on the plate">
+  <img src="docs/demo/failure.gif" width="256" alt="Pi0.5 runs out of time before completing the task">
+</p>
+
 ## Test
 
 ```bash
