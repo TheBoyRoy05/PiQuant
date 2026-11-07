@@ -64,6 +64,10 @@ cd report && latexmk report.tex
 
 `report/.latexmkrc` selects XeLaTeX, so the VS Code LaTeX Workshop extension builds it on save.
 
+## AI Use
+
+We used AI assistants to research papers and hardware specifications, to write scripts and unit tests, and to draft the first version of the report, which we then revised ourselves. A person checked every number an AI produced against its source or our own measurements. We own every line of code and every sentence of the report. Every pull request into `main` needs an approval from at least one other teammate before it merges, so at least two of us have read and stand behind each change. The report's appendix describes our AI use in more detail.
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md). To run on the NRP cluster, see [docs/nrp_kub_tutorial.md](docs/nrp_kub_tutorial.md).

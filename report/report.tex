@@ -132,4 +132,19 @@ Profiling also points to three reductions that need no quantization. First, LeRo
 \bibliography{reference}
 \bibliographystyle{style/dsc180bibstyle}
 
+\appendix
+\section{AI Use}
+
+We used AI assistants throughout the project, and a person owns every result. This appendix describes what the assistants did, how we checked their output, and what we asked them.
+
+\paragraph{Research.} Assistants helped us find and summarize papers on VLA inference and quantization, and look up GPU specifications such as peak tensor-core throughput and memory bandwidth. A person checked every number we report against the paper, the vendor specification or our own measurement before it went into the code or the report.
+
+\paragraph{Code.} Assistants wrote first drafts of the roofline model, the per-stage profiler, the LIBERO evaluation scripts, the NRP job files and the unit tests. We read and revised each draft, and we test the code in three ways. The unit tests run with \texttt{uv run pytest} before every review. One test checks that our roofline reproduces a published $\pi_0$ roofline on an RTX 4090 to within 5\%. We also compare the roofline's floors against latencies we measured ourselves on two GPUs.
+
+\paragraph{Report.} Assistants drafted the first version of each section from our notes, results and outline. We then revised every section ourselves, checking each claim against our data and rewriting passages that were unclear or went further than the data supports.
+
+\paragraph{Review.} Every pull request into \texttt{main} needs an approval from at least one other teammate before it merges, and a new push after approval needs a fresh approval. At least two of us have therefore read every change to the code and the report. Our contributing guide applies the same rule to work an assistant produced, and the person who ran the assistant owns the result.
+
+\paragraph{Prompts.} We worked with assistants in long, interactive sessions, so we describe what we asked rather than list every prompt. Most prompts fell into a few kinds: questions about a paper or a concept; requests to write or fix a script or test; questions about our own results, such as how promising quantization looks given the measured floors; and review requests on a draft, such as what to improve in a section or whether a sentence is supported by the data.
+
 \end{document}
