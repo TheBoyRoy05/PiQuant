@@ -44,3 +44,14 @@ def test_roofline_gpu_matches_device_names_exactly():
     assert _roofline_gpu("NVIDIA GeForce RTX 5080 Laptop GPU") is None
     assert _roofline_gpu("NVIDIA GeForce RTX 3090") is None
     assert _roofline_gpu("NVIDIA H100 80GB HBM3") is None
+
+
+def test_floor_without_adarms_weights_is_lower_for_the_action_expert_only():
+    prefix = Prefix(image_slots=3, blank_image_slots=1, tokens_per_image=256, text_tokens=200)
+
+    with_adarms = _floors(prefix, 50, "RTX 3090 Ti")
+    without = _floors(prefix, 50, "RTX 3090 Ti", adarms_weights=False)
+
+    assert without["action expert"] < with_adarms["action expert"]
+    assert without["vision encoder"] == with_adarms["vision encoder"]
+    assert without["llm prefix"] == with_adarms["llm prefix"]

@@ -4,7 +4,7 @@ import argparse
 import json
 from collections import defaultdict
 from collections.abc import Callable
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 
 import torch
@@ -15,6 +15,7 @@ from lerobot.utils.constants import OBS_LANGUAGE_ATTENTION_MASK, OBS_LANGUAGE_TO
 from rich.console import Console
 from rich.table import Table
 
+from piquant.adarms import ADARMS_MODES, ActionDiff, AdarmsMode, apply_adarms
 from piquant.roofline import FORMATS, GPUS, PI05_ACTION_EXPERT, TF32, Workload, latency_floor, stage_costs
 from piquant.timing import CallTimes, Prefix, Stage, Summary, measure, summarize
 
@@ -27,9 +28,11 @@ MATMUL_PRECISION = "high"
 class _Run:
     device: str
     compiled: bool
+    adarms: AdarmsMode
     steps: int
     prefix: Prefix
     calls: list[CallTimes]
+    action_diff: ActionDiff | None
 
     @property
     def mode(self) -> str:
@@ -45,23 +48,29 @@ def main() -> None:
     policy = _load_policy(args.policy, args.steps, args.compile)
     config = policy.config
     batch = _synthetic_batch(config)
-
-    warmup = f"Warming up for {args.warmup} calls"
     if args.compile:
-        warmup += f"; torch.compile in {config.compile_mode} mode can take minutes"
-    console.print(f"{warmup}.")
+        console.print(f"torch.compile in {config.compile_mode} mode compiles on the first calls, which can take minutes.")
+
+    action_diff = apply_adarms(policy, batch, args.adarms)
+    if action_diff:
+        _check_actions(action_diff, args.adarms, args.compile, console)
+
+    console.print(f"Warming up for {args.warmup} calls.")
     torch.cuda.reset_peak_memory_stats()
     calls, prefix = measure(policy, batch, args.warmup, args.iters, breakdown=not args.compile)
     run = _Run(
         device=torch.cuda.get_device_name(),
         compiled=args.compile,
+        adarms=args.adarms,
         steps=config.num_inference_steps,
         prefix=prefix or Prefix.from_config(config),
         calls=calls,
+        action_diff=action_diff,
     )
 
     gpu_name = args.gpu or _roofline_gpu(run.device)
-    floor = _floors(run.prefix, config.chunk_size, gpu_name) if gpu_name else None
+    adarms_weights = args.adarms != "precomputed"
+    floor = _floors(run.prefix, config.chunk_size, gpu_name, adarms_weights) if gpu_name else None
     _print_report(console, run, summarize(calls), floor, gpu_name, _stage_weights(policy.model))
 
     if args.output:
@@ -78,6 +87,12 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--compile", action="store_true", help="keep the checkpoint's torch.compile; total only")
     parser.add_argument("--gpu", choices=sorted(GPUS), help="roofline GPU to compare against (default: detected)")
     parser.add_argument("--output", type=Path, help="write every call's stage timings as JSON")
+    parser.add_argument(
+        "--adarms",
+        choices=ADARMS_MODES,
+        default="fp32",
+        help="the action expert's adaRMS layers: as stored (fp32), cast to bf16, or precomputed per step",
+    )
     return parser.parse_args()
 
 
@@ -110,14 +125,27 @@ def _synthetic_batch(config: PI05Config) -> dict[str, torch.Tensor]:
     return batch
 
 
+def _check_actions(diff: ActionDiff, mode: AdarmsMode, compiled: bool, console: Console) -> None:
+    """Print how far the rewrite moved the actions. Exit if precomputing changed them in eager mode, where the
+    tables reproduce the stored layers bit for bit."""
+    console.print(
+        f"adaRMS {mode}: max |action - fp32 action| = {diff.vs_fp32:.3g} on fixed noise "
+        f"(two fp32 calls differ by {diff.run_to_run:.3g})."
+    )
+    if mode == "precomputed" and not compiled and diff.vs_fp32 > diff.run_to_run:
+        raise SystemExit("Precomputed adaRMS changed the actions; in eager mode it should match fp32 exactly.")
+
+
 def _roofline_gpu(device_name: str) -> str | None:
     name = device_name.removeprefix("NVIDIA ").removeprefix("GeForce ")
     return name if name in GPUS else None
 
 
-def _floors(prefix: Prefix, action_tokens: int, gpu_name: str) -> dict[str, float]:
-    """Each stage's roofline floor in ms, the action expert's for one step."""
-    stages = stage_costs(Workload(prefix.image_slots, prefix.text_tokens, action_tokens), PI05_ACTION_EXPERT)
+def _floors(prefix: Prefix, action_tokens: int, gpu_name: str, adarms_weights: bool = True) -> dict[str, float]:
+    """Each stage's roofline floor in ms, the action expert's for one step. adarms_weights=False drops the adaRMS
+    layers' weight reads, which precomputing them removes."""
+    expert = PI05_ACTION_EXPERT if adarms_weights else replace(PI05_ACTION_EXPERT, adaptive_norm=False)
+    stages = stage_costs(Workload(prefix.image_slots, prefix.text_tokens, action_tokens), expert)
     gpu, bf16 = GPUS[gpu_name], FORMATS["BF16"]
     return {
         # LeRobot keeps SigLIP and the projector in FP32, which MATMUL_PRECISION runs as TF32.
@@ -189,7 +217,7 @@ def _print_report(
         console.print("Vision encoder = SigLIP on every image. Other = preprocessing, masks and Euler updates.")
 
     title = (
-        f"{run.device}, {run.steps} denoising steps, {run.mode}, {MATMUL_PRECISION} matmul, "
+        f"{run.device}, {run.steps} denoising steps, {run.mode}, adaRMS {run.adarms}, {MATMUL_PRECISION} matmul, "
         f"per call over {len(run.calls)} calls (ms)"
     )
     if floor:
@@ -235,7 +263,7 @@ def _weights_table(weights: dict[str, dict[torch.dtype, int]]) -> Table:
     table.add_column("Weights by dtype", justify="right")
     for stage, by_dtype in weights.items():
         cells = ", ".join(f"{n / 1e6:.0f} {_dtype_label(d)}" for d, n in sorted(by_dtype.items(), key=lambda x: -x[1]))
-        table.add_row(stage, cells)
+        table.add_row(stage, cells or "none: precomputed, each step reads one table row")
     return table
 
 
@@ -249,6 +277,8 @@ def _write_record(path: Path, policy: str, run: _Run, floor: dict[str, float] | 
         "device": run.device,
         "policy": policy,
         "mode": run.mode,
+        "adarms": run.adarms,
+        "action_diff": run.action_diff._asdict() if run.action_diff else None,
         "denoising_steps": run.steps,
         "torch": torch.__version__,
         "prefix": asdict(run.prefix),
