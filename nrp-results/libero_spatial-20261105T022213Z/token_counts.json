@@ -1,0 +1,82 @@
+{
+  "prefix_shapes": [
+    {
+      "image_tokens": 768,
+      "prompt_tokens_padded": 200,
+      "prompt_tokens_real": 50,
+      "samples": 3
+    },
+    {
+      "image_tokens": 768,
+      "prompt_tokens_padded": 200,
+      "prompt_tokens_real": 51,
+      "samples": 2
+    },
+    {
+      "image_tokens": 768,
+      "prompt_tokens_padded": 200,
+      "prompt_tokens_real": 52,
+      "samples": 12
+    },
+    {
+      "image_tokens": 768,
+      "prompt_tokens_padded": 200,
+      "prompt_tokens_real": 53,
+      "samples": 27
+    },
+    {
+      "image_tokens": 768,
+      "prompt_tokens_padded": 200,
+      "prompt_tokens_real": 54,
+      "samples": 56
+    },
+    {
+      "image_tokens": 768,
+      "prompt_tokens_padded": 200,
+      "prompt_tokens_real": 55,
+      "samples": 60
+    },
+    {
+      "image_tokens": 768,
+      "prompt_tokens_padded": 200,
+      "prompt_tokens_real": 56,
+      "samples": 51
+    },
+    {
+      "image_tokens": 768,
+      "prompt_tokens_padded": 200,
+      "prompt_tokens_real": 57,
+      "samples": 43
+    },
+    {
+      "image_tokens": 768,
+      "prompt_tokens_padded": 200,
+      "prompt_tokens_real": 58,
+      "samples": 22
+    },
+    {
+      "image_tokens": 768,
+      "prompt_tokens_padded": 200,
+      "prompt_tokens_real": 59,
+      "samples": 22
+    },
+    {
+      "image_tokens": 768,
+      "prompt_tokens_padded": 200,
+      "prompt_tokens_real": 60,
+      "samples": 9
+    },
+    {
+      "image_tokens": 768,
+      "prompt_tokens_padded": 200,
+      "prompt_tokens_real": 61,
+      "samples": 1
+    }
+  ],
+  "suffix_lengths": [
+    {
+      "action_tokens": 50,
+      "sample_steps": 3080
+    }
+  ]
+}
