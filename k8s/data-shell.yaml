@@ -1,0 +1,32 @@
+# A small CPU-only pod with the data volume mounted, for browsing and copying results.
+# Start:  kubectl apply -f k8s/data-shell.yaml
+# Shell:  kubectl -n ucsd-ubellur-ugcapstone-d38 exec -it data-shell -- sh
+# Copy:   kubectl -n ucsd-ubellur-ugcapstone-d38 cp data-shell:/data/results ./nrp-results
+# Stop:   kubectl -n ucsd-ubellur-ugcapstone-d38 delete pod data-shell
+apiVersion: v1
+kind: Pod
+metadata:
+  name: data-shell
+  namespace: ucsd-ubellur-ugcapstone-d38
+spec:
+  restartPolicy: Never
+  # NRP flags idle pods, so the shell exits on its own after 6 hours.
+  activeDeadlineSeconds: 21600
+  containers:
+    - name: shell
+      image: busybox:1.37
+      command: ["sleep", "21600"]
+      resources:
+        requests:
+          cpu: 100m
+          memory: 128Mi
+        limits:
+          cpu: 500m
+          memory: 512Mi
+      volumeMounts:
+        - name: data
+          mountPath: /data
+  volumes:
+    - name: data
+      persistentVolumeClaim:
+        claimName: piquant-data

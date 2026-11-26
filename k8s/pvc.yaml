@@ -1,0 +1,14 @@
+# Shared volume for the Hugging Face checkpoint cache, the uv package cache, the venv and eval results.
+# cephfs is ReadWriteMany, so several jobs can mount it at once.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: piquant-data
+  namespace: ucsd-ubellur-ugcapstone-d38
+spec:
+  storageClassName: rook-cephfs
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 50Gi

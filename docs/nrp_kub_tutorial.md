@@ -65,6 +65,13 @@
 		kubectl logs -f <pod-name> -n ucsd-ubellur-ugcapstone-d38
 		```
 	3. Collect outputs to your Domain's Persistent Volume if applicable, or use `kubectl cp` to bring files out of the completed pod.
+		- To browse or copy what is on our volume `piquant-data`, start the small data shell in `k8s/data-shell.yaml`. It mounts the volume at `/data`, needs no GPU, and exits on its own after 6 hours:
+			```
+			kubectl apply -f k8s/data-shell.yaml
+			kubectl -n ucsd-ubellur-ugcapstone-d38 exec -it data-shell -- sh
+			kubectl -n ucsd-ubellur-ugcapstone-d38 cp data-shell:/data/results ./nrp-results
+			kubectl -n ucsd-ubellur-ugcapstone-d38 delete pod data-shell
+			```
 	4. **Clean up**  
 	`kubectl delete job <job-name> -n ucsd-ubellur-ugcapstone-d38`
 	
