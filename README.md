@@ -47,6 +47,10 @@ uv run python -m piquant.profile --output outputs/profile.json  # keep every cal
 uv run python -m piquant.profile --adarms precomputed           # adaRMS layers as per-step tables (or bf16)
 ```
 
+The paired CUDA Graph run checks action parity with fixed inputs and noise before measuring warm
+policy-call latency on the same GPU. Inputs are already on the device. The graph prepares LeRobot's
+literal masks and timestep tensors during warmup so capture can reuse them.
+
 ## Demo
 
 Two Pi0.5 rollouts on LIBERO-Spatial from our first baseline evaluation, played back in real time. On the left, the policy places the bowl on the plate in 3.9 s. On the right, it runs out the 280-step limit without completing the task.

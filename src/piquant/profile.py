@@ -22,6 +22,7 @@ from piquant.timing import CallTimes, Prefix, Stage, Summary, measure, measure_c
 POLICY = "lerobot/pi05_libero_finetuned"
 # LeRobot's pi0.5 sets "high" (TF32) when it compiles, so eager uses it too to time the same math as lerobot-eval.
 MATMUL_PRECISION = "high"
+GRAPH_SEED = 0
 
 
 @dataclass(frozen=True)
@@ -47,6 +48,8 @@ def main() -> None:
     torch.set_float32_matmul_precision(MATMUL_PRECISION)
     policy = _load_policy(args.policy, args.steps, args.compile)
     config = policy.config
+    if args.cuda_graph:
+        torch.manual_seed(GRAPH_SEED)
     batch = _synthetic_batch(config)
     if args.compile:
         console.print(f"torch.compile in {config.compile_mode} mode compiles on the first calls, which can take minutes.")
@@ -103,6 +106,7 @@ def _profile_cuda_graph(
             "denoising_steps": policy.config.num_inference_steps,
             "prefix": asdict(Prefix.from_config(policy.config)),
             "warmup": args.warmup,
+            "seed": GRAPH_SEED,
             "matmul_precision": MATMUL_PRECISION,
             "peak_gpu_memory_gib": peak_gib,
             "max_action_error": max_action_error,

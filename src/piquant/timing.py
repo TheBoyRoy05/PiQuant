@@ -12,6 +12,7 @@ import torch
 from lerobot.policies.pi05.configuration_pi05 import PI05Config
 from lerobot.policies.pi05.modeling_pi05 import PI05Policy, PI05Pytorch
 from lerobot.utils.constants import OBS_LANGUAGE_TOKENS
+from torch.overrides import TorchFunctionMode
 
 from piquant.roofline import TOKENS_PER_IMAGE
 
@@ -95,14 +96,18 @@ def measure_cuda_graph(
 
     stream = torch.cuda.Stream()
     stream.wait_stream(torch.cuda.current_stream())
+    literals = _CaptureLiterals()
     with torch.cuda.stream(stream):
-        for _ in range(warmup):
+        with literals:
+            eager()
+        for _ in range(warmup - 1):
             eager()
     torch.cuda.current_stream().wait_stream(stream)
     expected = eager()
 
     graph = torch.cuda.CUDAGraph()
-    with torch.cuda.graph(graph):
+    literals.capture = True
+    with torch.cuda.graph(graph, stream=stream), literals:
         captured = eager()
     graph.replay()
     torch.testing.assert_close(captured, expected, rtol=1e-4, atol=1e-5)
@@ -127,6 +132,28 @@ def measure_cuda_graph(
         eager_calls.append(timed(eager))
         graph_calls.append(timed(graph.replay))
     return eager_calls, graph_calls, max_action_error
+
+
+class _CaptureLiterals(TorchFunctionMode):
+    """Hoist LeRobot's literal attention masks and timestep tensors out of capture."""
+
+    def __init__(self) -> None:
+        self.capture = False
+        self.values: dict[tuple, torch.Tensor] = {}
+
+    def __torch_function__(self, func, types, args=(), kwargs=None):
+        kwargs = kwargs or {}
+        if func is torch.tensor and len(args) == 1 and isinstance(args[0], (int, float, list)):
+            device = kwargs.get("device")
+            if device is not None and torch.device(device).type == "cuda":
+                data = tuple(args[0]) if isinstance(args[0], list) else args[0]
+                key = data, tuple(sorted(kwargs.items()))
+                if self.capture:
+                    return self.values[key].clone()
+                tensor = func(*args, **kwargs)
+                self.values[key] = tensor
+                return tensor
+        return func(*args, **kwargs)
 
 
 def _time_stages(model: PI05Pytorch, timer: _StageTimer) -> Callable[[], Prefix | None]:
