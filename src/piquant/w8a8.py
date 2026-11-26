@@ -1,7 +1,9 @@
-"""Simulate signed INT8 attention and MLP linears in the Pi0.5 action expert."""
+"""Simulate signed INT8 attention and MLP linears in one Pi0.5 component."""
 
 import logging
+import os
 from functools import wraps
+from typing import Literal
 
 import torch
 from lerobot.policies.pi05.modeling_pi05 import PI05Policy
@@ -22,20 +24,21 @@ def fake_int8(values: torch.Tensor) -> torch.Tensor:
 
 
 @torch.no_grad()
-def simulate_action_expert_w8a8(policy: PI05Policy) -> tuple[str, ...]:
+def simulate_w8a8(policy: PI05Policy, target: Literal["expert", "prefix"]) -> tuple[str, ...]:
     """Round-trip weights per output channel and activations per input token.
 
-    Biases, adaRMS, the two outer action projections, the VLM and the vision encoder
-    keep their checkpoint precision. The linears still use floating-point kernels.
+    Other components, biases, normalization and outer projections keep checkpoint
+    precision. The linears still use floating-point kernels.
     """
-    expert = policy.model.paligemma_with_expert.gemma_expert.model
+    model = policy.model.paligemma_with_expert
+    backbone = model.gemma_expert.model if target == "expert" else model.paligemma.model.language_model
     linears = [
         (name, layer)
-        for name, layer in expert.named_modules()
+        for name, layer in backbone.named_modules()
         if isinstance(layer, nn.Linear) and (".self_attn." in name or ".mlp." in name)
     ]
     if not linears:
-        raise ValueError("No attention or MLP linears found in the Pi0.5 action expert.")
+        raise ValueError(f"No attention or MLP linears found in the Pi0.5 {target}.")
 
     for _, layer in linears:
         layer.weight.copy_(fake_int8(layer.weight))
@@ -48,7 +51,10 @@ def _quantize_activation(_layer: nn.Module, args: tuple[torch.Tensor, ...]) -> t
 
 
 def main() -> None:
-    """Run the normal LeRobot eval with simulated action-expert W8A8."""
+    """Run the normal LeRobot eval with one component at simulated W8A8."""
+    target = os.environ.get("PIQUANT_W8A8_TARGET", "expert")
+    if target not in ("expert", "prefix"):
+        raise SystemExit("PIQUANT_W8A8_TARGET must be expert or prefix.")
     make_policy = lerobot_eval.make_policy
 
     @wraps(make_policy)
@@ -56,8 +62,8 @@ def main() -> None:
         policy = make_policy(*args, **kwargs)
         if not isinstance(policy, PI05Policy) or policy.config.compile_model:
             raise ValueError("The W8A8 accuracy experiment requires eager Pi0.5.")
-        selected = simulate_action_expert_w8a8(policy)
-        LOGGER.info("Simulating action-expert W8A8 on %d attention and MLP linears: %s", len(selected), selected)
+        selected = simulate_w8a8(policy, target)
+        LOGGER.info("Simulating %s W8A8 on %d attention and MLP linears: %s", target, len(selected), selected)
         return policy
 
     lerobot_eval.make_policy = make_quantized_policy

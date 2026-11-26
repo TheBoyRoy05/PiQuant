@@ -38,7 +38,8 @@ MUJOCO_GL=egl uv run python -m piquant.w8a8 \
   --env.type=libero --env.task=libero_spatial --eval.batch_size=1 --eval.n_episodes=10
 ```
 
-This uses floating-point kernels to measure the accuracy impact of INT8 rounding.
+Set `PIQUANT_W8A8_TARGET=prefix` to quantize only the language-model prefix's attention and MLP
+linears. Both variants use floating-point kernels to measure the accuracy impact of INT8 rounding.
 
 Print the latency floor of each Pi0.5 stage on each GPU and format (runs on CPU):
 
