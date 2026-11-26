@@ -17,11 +17,12 @@ from rich.table import Table
 
 from piquant.adarms import ADARMS_MODES, ActionDiff, AdarmsMode, apply_adarms
 from piquant.roofline import FORMATS, GPUS, PI05_ACTION_EXPERT, TF32, Workload, latency_floor, stage_costs
-from piquant.timing import CallTimes, Prefix, Stage, Summary, measure, summarize
+from piquant.timing import CallTimes, Prefix, Stage, Summary, measure, measure_cuda_graph, summarize
 
 POLICY = "lerobot/pi05_libero_finetuned"
 # LeRobot's pi0.5 sets "high" (TF32) when it compiles, so eager uses it too to time the same math as lerobot-eval.
 MATMUL_PRECISION = "high"
+GRAPH_SEED = 0
 
 
 @dataclass(frozen=True)
@@ -47,6 +48,8 @@ def main() -> None:
     torch.set_float32_matmul_precision(MATMUL_PRECISION)
     policy = _load_policy(args.policy, args.steps, args.compile)
     config = policy.config
+    if args.cuda_graph:
+        torch.manual_seed(GRAPH_SEED)
     batch = _synthetic_batch(config)
     if args.compile:
         console.print(f"torch.compile in {config.compile_mode} mode compiles on the first calls, which can take minutes.")
@@ -57,6 +60,9 @@ def main() -> None:
 
     console.print(f"Warming up for {args.warmup} calls.")
     torch.cuda.reset_peak_memory_stats()
+    if args.cuda_graph:
+        _profile_cuda_graph(args, policy, batch, console)
+        return
     calls, prefix = measure(policy, batch, args.warmup, args.iters, breakdown=not args.compile)
     run = _Run(
         device=torch.cuda.get_device_name(),
@@ -78,13 +84,49 @@ def main() -> None:
         console.print(f"Wrote {args.output}")
 
 
+def _profile_cuda_graph(
+    args: argparse.Namespace, policy: PI05Policy, batch: dict[str, torch.Tensor], console: Console
+) -> None:
+    eager, graph, max_action_error = measure_cuda_graph(policy, batch, args.warmup, args.iters)
+    eager_total = summarize(eager)[Stage.TOTAL]
+    graph_total = summarize(graph)[Stage.TOTAL]
+    device = torch.cuda.get_device_name()
+    peak_gib = torch.cuda.max_memory_allocated() / 2**30
+    speedup = eager_total.median_ms / graph_total.median_ms
+    console.print(f"{device}, {policy.config.num_inference_steps} denoising steps, adaRMS {args.adarms}")
+    console.print(f"Eager median/p90: {eager_total.median_ms:.2f}/{eager_total.p90_ms:.2f} ms")
+    console.print(f"Graph median/p90: {graph_total.median_ms:.2f}/{graph_total.p90_ms:.2f} ms")
+    console.print(f"Median speedup: {speedup:.2f}x. Max action error: {max_action_error:.3g}. Peak: {peak_gib:.2f} GiB.")
+    if args.output:
+        record = {
+            "device": device,
+            "policy": args.policy,
+            "torch": torch.__version__,
+            "adarms": args.adarms,
+            "denoising_steps": policy.config.num_inference_steps,
+            "prefix": asdict(Prefix.from_config(policy.config)),
+            "warmup": args.warmup,
+            "seed": GRAPH_SEED,
+            "matmul_precision": MATMUL_PRECISION,
+            "peak_gpu_memory_gib": peak_gib,
+            "max_action_error": max_action_error,
+            "eager_calls_ms": eager,
+            "graph_calls_ms": graph,
+        }
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(json.dumps(record, indent=2))
+        console.print(f"Wrote {args.output}")
+
+
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--policy", default=POLICY)
     parser.add_argument("--steps", type=int, help="denoising steps (default: the checkpoint's)")
     parser.add_argument("--warmup", type=_positive_int, default=3)
     parser.add_argument("--iters", type=_positive_int, default=20)
-    parser.add_argument("--compile", action="store_true", help="keep the checkpoint's torch.compile; total only")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--compile", action="store_true", help="keep the checkpoint's torch.compile; total only")
+    mode.add_argument("--cuda-graph", action="store_true", help="compare eager and standalone CUDA Graph replay")
     parser.add_argument("--gpu", choices=sorted(GPUS), help="roofline GPU to compare against (default: detected)")
     parser.add_argument("--output", type=Path, help="write every call's stage timings as JSON")
     parser.add_argument(

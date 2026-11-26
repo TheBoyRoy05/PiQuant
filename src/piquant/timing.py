@@ -11,6 +11,8 @@ from enum import StrEnum
 import torch
 from lerobot.policies.pi05.configuration_pi05 import PI05Config
 from lerobot.policies.pi05.modeling_pi05 import PI05Policy, PI05Pytorch
+from lerobot.utils.constants import OBS_LANGUAGE_TOKENS
+from torch.overrides import TorchFunctionMode
 
 from piquant.roofline import TOKENS_PER_IMAGE
 
@@ -79,6 +81,79 @@ def measure(
         policy.predict_action_chunk(batch)
         calls.append(timer.read())
     return calls, built_prefix()
+
+
+def measure_cuda_graph(
+    policy: PI05Policy, batch: dict[str, torch.Tensor], warmup: int, iters: int
+) -> tuple[list[CallTimes], list[CallTimes], float]:
+    """Compare eager and graph replay on the same inputs and fixed denoising noise."""
+    config = policy.config
+    tokens = batch[OBS_LANGUAGE_TOKENS]
+    noise = policy.model.sample_noise((tokens.shape[0], config.chunk_size, config.max_action_dim), tokens.device)
+
+    def eager() -> torch.Tensor:
+        return policy.predict_action_chunk(batch, noise=noise)
+
+    stream = torch.cuda.Stream()
+    stream.wait_stream(torch.cuda.current_stream())
+    literals = _CaptureLiterals()
+    with torch.cuda.stream(stream):
+        with literals:
+            eager()
+        for _ in range(warmup - 1):
+            eager()
+    torch.cuda.current_stream().wait_stream(stream)
+    expected = eager()
+
+    graph = torch.cuda.CUDAGraph()
+    literals.capture = True
+    with torch.cuda.graph(graph, stream=stream), literals:
+        captured = eager()
+    graph.replay()
+    torch.testing.assert_close(captured, expected, rtol=1e-4, atol=1e-5)
+    max_action_error = (captured - expected).abs().max().item()
+    for _ in range(warmup):
+        graph.replay()
+    torch.cuda.synchronize()
+
+    start = torch.cuda.Event(enable_timing=True)
+    end = torch.cuda.Event(enable_timing=True)
+
+    def timed(call: Callable[[], object]) -> CallTimes:
+        start.record()
+        call()
+        end.record()
+        end.synchronize()
+        return {Stage.TOTAL: [start.elapsed_time(end)]}
+
+    eager_calls = []
+    graph_calls = []
+    for _ in range(iters):
+        eager_calls.append(timed(eager))
+        graph_calls.append(timed(graph.replay))
+    return eager_calls, graph_calls, max_action_error
+
+
+class _CaptureLiterals(TorchFunctionMode):
+    """Hoist LeRobot's literal attention masks and timestep tensors out of capture."""
+
+    def __init__(self) -> None:
+        self.capture = False
+        self.values: dict[tuple, torch.Tensor] = {}
+
+    def __torch_function__(self, func, types, args=(), kwargs=None):
+        kwargs = kwargs or {}
+        if func is torch.tensor and len(args) == 1 and isinstance(args[0], (int, float, list)):
+            device = kwargs.get("device")
+            if device is not None and torch.device(device).type == "cuda":
+                data = tuple(args[0]) if isinstance(args[0], list) else args[0]
+                key = data, tuple(sorted(kwargs.items()))
+                if self.capture:
+                    return self.values[key].clone()
+                tensor = func(*args, **kwargs)
+                self.values[key] = tensor
+                return tensor
+        return func(*args, **kwargs)
 
 
 def _time_stages(model: PI05Pytorch, timer: _StageTimer) -> Callable[[], Prefix | None]:
