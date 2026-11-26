@@ -42,6 +42,7 @@ Measure the latency of each Pi0.5 stage on this GPU, next to its roofline floor 
 uv run python -m piquant.profile                                # eager, per-stage breakdown
 uv run python -m piquant.profile --steps 2                      # fewer denoising steps
 uv run python -m piquant.profile --compile                      # the checkpoint's torch.compile, total only
+uv run python -m piquant.profile --cuda-graph --warmup 10 --iters 100 --output outputs/graph.json
 uv run python -m piquant.profile --output outputs/profile.json  # keep every call's timings
 uv run python -m piquant.profile --adarms precomputed           # adaRMS layers as per-step tables (or bf16)
 ```

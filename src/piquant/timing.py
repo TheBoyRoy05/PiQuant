@@ -11,6 +11,7 @@ from enum import StrEnum
 import torch
 from lerobot.policies.pi05.configuration_pi05 import PI05Config
 from lerobot.policies.pi05.modeling_pi05 import PI05Policy, PI05Pytorch
+from lerobot.utils.constants import OBS_LANGUAGE_TOKENS
 
 from piquant.roofline import TOKENS_PER_IMAGE
 
@@ -79,6 +80,53 @@ def measure(
         policy.predict_action_chunk(batch)
         calls.append(timer.read())
     return calls, built_prefix()
+
+
+def measure_cuda_graph(
+    policy: PI05Policy, batch: dict[str, torch.Tensor], warmup: int, iters: int
+) -> tuple[list[CallTimes], list[CallTimes], float]:
+    """Compare eager and graph replay on the same inputs and fixed denoising noise."""
+    config = policy.config
+    tokens = batch[OBS_LANGUAGE_TOKENS]
+    noise = policy.model.sample_noise((tokens.shape[0], config.chunk_size, config.max_action_dim), tokens.device)
+
+    def eager() -> torch.Tensor:
+        return policy.predict_action_chunk(batch, noise=noise)
+
+    stream = torch.cuda.Stream()
+    stream.wait_stream(torch.cuda.current_stream())
+    with torch.cuda.stream(stream):
+        for _ in range(warmup):
+            eager()
+    torch.cuda.current_stream().wait_stream(stream)
+    expected = eager()
+
+    graph = torch.cuda.CUDAGraph()
+    with torch.cuda.graph(graph):
+        captured = eager()
+    graph.replay()
+    torch.testing.assert_close(captured, expected, rtol=1e-4, atol=1e-5)
+    max_action_error = (captured - expected).abs().max().item()
+    for _ in range(warmup):
+        graph.replay()
+    torch.cuda.synchronize()
+
+    start = torch.cuda.Event(enable_timing=True)
+    end = torch.cuda.Event(enable_timing=True)
+
+    def timed(call: Callable[[], object]) -> CallTimes:
+        start.record()
+        call()
+        end.record()
+        end.synchronize()
+        return {Stage.TOTAL: [start.elapsed_time(end)]}
+
+    eager_calls = []
+    graph_calls = []
+    for _ in range(iters):
+        eager_calls.append(timed(eager))
+        graph_calls.append(timed(graph.replay))
+    return eager_calls, graph_calls, max_action_error
 
 
 def _time_stages(model: PI05Pytorch, timer: _StageTimer) -> Callable[[], Prefix | None]:
