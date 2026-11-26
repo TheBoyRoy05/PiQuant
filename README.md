@@ -30,6 +30,17 @@ Evaluate Pi0.5 on one LIBERO suite (default `libero_spatial`, 10 episodes per ta
 scripts/eval_libero.sh libero_spatial 10
 ```
 
+Evaluate simulated W8A8 in the Pi0.5 action expert's attention and MLP linears:
+
+```bash
+MUJOCO_GL=egl uv run python -m piquant.w8a8 \
+  --policy.path=lerobot/pi05_libero_finetuned --policy.compile_model=false --policy.n_action_steps=10 \
+  --env.type=libero --env.task=libero_spatial --eval.batch_size=1 --eval.n_episodes=10
+```
+
+Set `PIQUANT_W8A8_TARGET=prefix` to quantize only the language-model prefix's attention and MLP
+linears. Both variants use floating-point kernels to measure the accuracy impact of INT8 rounding.
+
 Print the latency floor of each Pi0.5 stage on each GPU and format (runs on CPU):
 
 ```bash
